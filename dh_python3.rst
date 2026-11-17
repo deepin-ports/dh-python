@@ -30,8 +30,6 @@ QUICK GUIDE FOR MAINTAINERS
  * install files to the *standard* locations, add `--install-layout=deb` to
    setup.py's install command if your package is using distutils,
  * add `python3` to dh's --with option, or:
- * `include /usr/share/cdbs/1/class/python-distutils.mk` in debian/rules and
-   depend on `cdbs (>= 0.4.90)`, or:
  * call ``dh_python3`` in the `binary-*` target,
  * add `${python3:Depends}` to Depends
 
@@ -228,6 +226,13 @@ OPTIONS
 --shebang=COMMAND	use given command as shebang in scripts
 
 --ignore-shebangs	do not translate shebangs into Debian dependencies
+
+--allow-build-directory-module-name	allow the package to install a
+  module named after a common build directory (e.g. build, doc, or debian)
+
+--allow-unmerged-dist-packages	don't abort if there were parts of the
+  `dist-packages` trees from multiple Python versions that we couldn't
+  merge.
 
 SEE ALSO
 ========

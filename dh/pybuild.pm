@@ -2,12 +2,12 @@
 #
 # Copyright: © 2012-2013 Piotr Ożarowski
 
-# TODO:
-# * support for dh --parallel
 
 package Debian::Debhelper::Buildsystem::pybuild;
 
 use strict;
+use Cwd;
+use File::Spec;
 use Dpkg::Control;
 use Dpkg::Changelog::Debian;
 use Debian::Debhelper::Dh_Lib qw(%dh error doit);
@@ -96,6 +96,22 @@ sub clean {
 	doit('find', '.', '-name', '*.pyc', '-exec', 'rm', '{}', ';');
 }
 
+# Convert the version into a PEP440 compliant version.
+sub make_pep440_compliant {
+	my $version = shift;
+	my (undef, $public, $local) = split(qr/^([0-9][0-9.]*(?:(?:a|b|rc|\.post|\.dev)[0-9]+)*)\+?/, $version, 2);
+	return $version if !$local;
+
+	my $sanitized_local = $local;
+	$sanitized_local =~ s/[+~-]+/./g;
+	$sanitized_local =~ s/^\.+|\.+$//g;
+
+	my $pep440_version = "$public+$sanitized_local";
+	die "'$pep440_version' not PEP440 compliant"
+		unless $sanitized_local =~ /^[a-zA-Z0-9.]+\z/;
+	return $pep440_version;
+}
+
 sub pybuild_commands {
 	my $this=shift;
 	my $step=shift;
@@ -115,11 +131,13 @@ sub pybuild_commands {
 	# Pass dh's destdir, if it's not the default value
 	if ($step eq 'install') {
 		my $destdir = shift(@options);
-		if ($destdir ne "debian/tmp") {
+		if (File::Spec->rel2abs($destdir, getcwd()) ne File::Spec->rel2abs("debian/tmp", getcwd())) {
 			push @options, "--dest-dir=$destdir";
 		}
 	}
 
+	my $parallel = $this->get_parallel();
+	push @options, "--parallel=$parallel";
 	my @deps;
 	if ($ENV{'PYBUILD_INTERPRETERS'}) {
 		push @result, ['pybuild', "--$step", @options];
@@ -141,7 +159,7 @@ sub pybuild_commands {
 			$version =~ s/-[^-]+$//;  # revision
 			$version =~ s/^\d+://;    # epoch
 			$version =~ s/~/-/;       # ignore tilde versions
-			$ENV{'SETUPTOOLS_SCM_PRETEND_VERSION'} = $version;
+			$ENV{'SETUPTOOLS_SCM_PRETEND_VERSION'} = make_pep440_compliant($version);
 		}
 
 		# When depends on python3-pdm-backend, set PDM_BUILD_SCM_VERSION to
@@ -153,7 +171,7 @@ sub pybuild_commands {
 			$version =~ s/-[^-]+$//;  # revision
 			$version =~ s/^\d+://;    # epoch
 			$version =~ s/~/-/;       # ignore tilde versions
-			$ENV{'PDM_BUILD_SCM_VERSION'} = $version;
+			$ENV{'PDM_BUILD_SCM_VERSION'} = make_pep440_compliant($version);
 		}
 
 		# When depends on python3-poetry-dynamic-versioning, set
@@ -165,7 +183,7 @@ sub pybuild_commands {
 			$version =~ s/-[^-]+$//;  # revision
 			$version =~ s/^\d+://;    # epoch
 			$version =~ s/~/-/;       # ignore tilde versions
-			$ENV{'POETRY_DYNAMIC_VERSIONING_BYPASS'} = $version;
+			$ENV{'POETRY_DYNAMIC_VERSIONING_BYPASS'} = make_pep440_compliant($version);
 		}
 
 		# When depends on python{3,}-pbr, set PBR_VERSION to upstream version
@@ -178,7 +196,7 @@ sub pybuild_commands {
 			my $version = @{$changelog}[0]->get_version();
 			$version =~ s/-[^-]+$//;  # revision
 			$version =~ s/^\d+://;    # epoch
-			$ENV{'PBR_VERSION'} = $version;
+			$ENV{'PBR_VERSION'} = make_pep440_compliant($version);
 		}
 
 		my @py3opts = ('pybuild', "--$step");
@@ -186,7 +204,6 @@ sub pybuild_commands {
 		if (($step eq 'test' or $step eq 'autopkgtest') and
 				$ENV{'PYBUILD_TEST_PYTEST'} ne '1' and
 				$ENV{'PYBUILD_TEST_NOSE2'} ne '1' and
-				$ENV{'PYBUILD_TEST_NOSE'} ne '1' and
 				$ENV{'PYBUILD_TEST_CUSTOM'} ne '1' and
 				$ENV{'PYBUILD_TEST_TOX'} ne '1' and
 				$ENV{'PYBUILD_TEST_STESTR'} ne '1') {
@@ -196,8 +213,6 @@ sub pybuild_commands {
 				push @py3opts, '--test-pytest'}
 			elsif (grep {$_ eq 'python3-nose2'} @deps and $ENV{'PYBUILD_TEST_NOSE2'} ne '0') {
 				push @py3opts, '--test-nose2'}
-			elsif (grep {$_ eq 'python3-nose'} @deps and $ENV{'PYBUILD_TEST_NOSE'} ne '0') {
-				push @py3opts, '--test-nose'}
 			elsif (grep {$_ eq 'python3-stestr'} @deps and $ENV{'PYBUILD_TEST_STESTR'} ne '0') {
                                push @py3opts, '--test-stestr'}
 		}
